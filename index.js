@@ -73,6 +73,32 @@ app.get('/participants', async (req, res) => {
     }
 });
 
+app.post('/messages', async (req, res) => {
+    const { to, text, type } = req.body;
+    const user = req.headers.user;
+    try {
+        await mongoClient.connect();
+        let db = mongoClient.db('batepapo-uol');
+        const currentTime = dayjs().format('HH:mm:ss');
+
+        await db.collection('mensagens').insertOne({
+            from: user,
+            to: to,
+            text: text,
+            type: type,
+            time: currentTime,
+        });
+        res.sendStatus(201);
+        console.log(chalk.bold.blue('Posted partipants'));
+
+        mongoClient.close();
+    } catch (e) {
+        console.error(chalk.bold.red('Could not get participants'), e);
+        res.sendStatus(500);
+        mongoClient.close();
+    }
+});
+
 app.listen(5000, () => {
     console.log(chalk.bold.green('Server is listening on port 5000'));
 });
