@@ -125,6 +125,36 @@ app.get('/messages', async (req, res) => {
     }
 });
 
+app.post('/status', async (req, res) => {
+    const user = req.headers.user;
+    try {
+        await mongoClient.connect();
+        let db = mongoClient.db('batepapo-uol');
+        const checkUser = await db
+            .collection('participantes')
+            .findOne({ name: user });
+        if (!checkUser) {
+            res.sendStatus(404);
+            mongoClient.close();
+            return;
+        }
+
+        await db.updateOne(
+            {
+                lastStatus: Date.now(),
+            },
+            { $set: req.body }
+        );
+
+        res.sendStatus(200);
+        mongoClient.close();
+    } catch (e) {
+        console.error(chalk.bold.red('Could not get messages'), e);
+        res.sendStatus(500);
+        mongoClient.close();
+    }
+});
+
 app.listen(5000, () => {
     console.log(chalk.bold.green('Server is listening on port 5000'));
 });
