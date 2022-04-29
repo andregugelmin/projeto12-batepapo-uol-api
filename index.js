@@ -99,6 +99,32 @@ app.post('/messages', async (req, res) => {
     }
 });
 
+app.get('/messages', async (req, res) => {
+    const limit = parseInt(req.query.limit);
+    const user = req.headers.user;
+    try {
+        await mongoClient.connect();
+        let db = mongoClient.db('batepapo-uol');
+
+        const allMessagesInDb = await db
+            .collection('mensagens')
+            .find()
+            .toArray();
+        const messages = allMessagesInDb.filter((msg) => {
+            if (msg.type === 'public' || msg.from === user || msg.to === user)
+                return true;
+        });
+        if (limit === undefined) res.send([...allMessagesInDb].reverse());
+        else if (messages.length <= limit) res.send([...messages].reverse());
+        else res.send([...messages].reverse().splice(0, limit));
+        mongoClient.close();
+    } catch (e) {
+        console.error(chalk.bold.red('Could not get messages'), e);
+        res.sendStatus(500);
+        mongoClient.close();
+    }
+});
+
 app.listen(5000, () => {
     console.log(chalk.bold.green('Server is listening on port 5000'));
 });
