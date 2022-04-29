@@ -41,7 +41,29 @@ app.post('/participants', async (req, res) => {
                 time: currentTime,
             });
             res.sendStatus(201);
+            console.log(chalk.bold.blue('Posted partipants'));
         }
+
+        mongoClient.close();
+    } catch (e) {
+        console.error(chalk.bold.red('Could not post participants'), e);
+        res.sendStatus(500);
+        mongoClient.close();
+    }
+});
+
+app.get('/participants', async (req, res) => {
+    try {
+        await mongoClient.connect();
+
+        let db = mongoClient.db('batepapo-uol');
+
+        const participants = await db
+            .collection('participantes')
+            .find()
+            .toArray();
+
+        res.send(participants);
 
         mongoClient.close();
     } catch (e) {
