@@ -14,14 +14,41 @@ app.use(cors());
 app.use(json());
 
 const mongoClient = new MongoClient(process.env.MONGO_URL);
+let db;
+
+mongoClient.connect().then(() => {
+    db = mongoClient.db('batepapo-uol');
+    setInterval(async () => {
+        try {
+            const participantsColection = await db.collection('participantes');
+            let participants = await participantsColection.find().toArray();
+
+            if (participants) {
+                participants.forEach(async (e) => {
+                    if (Date.now() - e.lastStatus >= 10000) {
+                        const currentTime = dayjs().format('HH:mm:ss');
+                        await db.collection('mensagens').insertOne({
+                            from: e.name,
+                            to: 'Todos',
+                            text: 'sai da sala...',
+                            type: 'status',
+                            time: currentTime,
+                        });
+
+                        await participantsColection.deleteOne(e);
+                    }
+                });
+            }
+        } catch (e) {
+            console.log(chalk.bold.red('Error update participants status'), e);
+        }
+    }, 15000);
+});
 
 app.post('/participants', async (req, res) => {
     const { name } = req.body;
     if (!name) res.sendStatus(422);
     try {
-        await mongoClient.connect();
-        let db = mongoClient.db('batepapo-uol');
-
         const checkName = await db
             .collection('participantes')
             .findOne({ name: name });
@@ -43,33 +70,23 @@ app.post('/participants', async (req, res) => {
             res.sendStatus(201);
             console.log(chalk.bold.blue('Posted partipants'));
         }
-
-        mongoClient.close();
     } catch (e) {
         console.error(chalk.bold.red('Could not post participants'), e);
         res.sendStatus(500);
-        mongoClient.close();
     }
 });
 
 app.get('/participants', async (req, res) => {
     try {
-        await mongoClient.connect();
-
-        let db = mongoClient.db('batepapo-uol');
-
         const participants = await db
             .collection('participantes')
             .find()
             .toArray();
 
         res.send(participants);
-
-        mongoClient.close();
     } catch (e) {
         console.error(chalk.bold.red('Could not get participants'), e);
         res.sendStatus(500);
-        mongoClient.close();
     }
 });
 
@@ -77,8 +94,6 @@ app.post('/messages', async (req, res) => {
     const { to, text, type } = req.body;
     const user = req.headers.user;
     try {
-        await mongoClient.connect();
-        let db = mongoClient.db('batepapo-uol');
         const currentTime = dayjs().format('HH:mm:ss');
 
         await db.collection('mensagens').insertOne({
@@ -89,13 +104,10 @@ app.post('/messages', async (req, res) => {
             time: currentTime,
         });
         res.sendStatus(201);
-        console.log(chalk.bold.blue('Posted partipants'));
-
-        mongoClient.close();
+        console.log(chalk.bold.blue('Posted messages'));
     } catch (e) {
-        console.error(chalk.bold.red('Could not get participants'), e);
+        console.error(chalk.bold.red('Could not get messages'), e);
         res.sendStatus(500);
-        mongoClient.close();
     }
 });
 
@@ -103,55 +115,53 @@ app.get('/messages', async (req, res) => {
     const limit = parseInt(req.query.limit);
     const user = req.headers.user;
     try {
-        await mongoClient.connect();
-        let db = mongoClient.db('batepapo-uol');
-
         const allMessagesInDb = await db
             .collection('mensagens')
             .find()
             .toArray();
         const messages = allMessagesInDb.filter((msg) => {
-            if (msg.type === 'public' || msg.from === user || msg.to === user)
+            if (
+                msg.type === 'message' ||
+                msg.type === 'status' ||
+                msg.from === user ||
+                msg.to === user
+            )
                 return true;
         });
-        if (limit === undefined) res.send([...allMessagesInDb].reverse());
-        else if (messages.length <= limit) res.send([...messages].reverse());
-        else res.send([...messages].reverse().splice(0, limit));
-        mongoClient.close();
+        if (limit === undefined) res.send([...allMessagesInDb]);
+        else if (messages.length <= limit) res.send([...messages]);
+        else
+            res.send(
+                [...messages].splice(messages.length - limit, messages.length)
+            );
     } catch (e) {
         console.error(chalk.bold.red('Could not get messages'), e);
         res.sendStatus(500);
-        mongoClient.close();
     }
 });
 
 app.post('/status', async (req, res) => {
     const user = req.headers.user;
     try {
-        await mongoClient.connect();
-        let db = mongoClient.db('batepapo-uol');
         const checkUser = await db
             .collection('participantes')
             .findOne({ name: user });
         if (!checkUser) {
             res.sendStatus(404);
-            mongoClient.close();
             return;
         }
 
-        await db.updateOne(
+        await db.collection('participantes').updateOne(
             {
-                lastStatus: Date.now(),
+                name: user,
             },
-            { $set: req.body }
+            { $set: { lastStatus: Date.now() } }
         );
 
         res.sendStatus(200);
-        mongoClient.close();
     } catch (e) {
-        console.error(chalk.bold.red('Could not get messages'), e);
+        console.error(chalk.bold.red('Could not post status'), e);
         res.sendStatus(500);
-        mongoClient.close();
     }
 });
 
