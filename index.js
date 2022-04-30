@@ -134,7 +134,7 @@ app.post('/messages', async (req, res) => {
             .collection('participantes')
             .findOne({ name: user });
 
-        if (checkFrom === undefined) {
+        if (!checkFrom) {
             res.sendStatus(422);
             return;
         }
@@ -232,20 +232,66 @@ app.delete('/messages/:MESSAGE_ID', async (req, res) => {
         console.error(chalk.bold.red('Could not delete message'), e);
         res.sendStatus(500);
     }
+});
 
-    // try {
-    //     const checkMessage = await db.findOne({
-    //         _id: new ObjectId(MESSAGE_ID),
-    //     });
-    //     if (!checkMessage) {
-    //         res.sendStatus(404);
-    //         return;
-    //     }
-    //     //await db.deleteOne({ _id: new ObjectId(MESSAGE_ID) });
-    // } catch (e) {
-    //     console.error(chalk.bold.red('Could not delete message'), e);
-    //     res.sendStatus(500);
-    // }
+app.put('/messages/:MESSAGE_ID', async (req, res) => {
+    let { to, text, type } = req.body;
+    let { user } = req.headers;
+    const { MESSAGE_ID } = req.params;
+
+    to = stripHtml(to).result.trim();
+    text = stripHtml(text).result.trim();
+    type = stripHtml(type).result.trim();
+    user = stripHtml(user).result.trim();
+
+    const userSchema = joi.object({
+        to: joi.string().required(),
+        text: joi.string().required(),
+        type: joi.any().valid('message', 'private_message'),
+    });
+
+    const validation = userSchema.validate(
+        { to, text, type },
+        { abortEarly: true }
+    );
+
+    if (validation.error) {
+        console.log(validation.error.details);
+        res.sendStatus(422);
+        return;
+    }
+
+    try {
+        const checkFrom = await db
+            .collection('participantes')
+            .findOne({ name: user });
+
+        if (!checkFrom) {
+            res.sendStatus(422);
+            return;
+        }
+        const checkMessage = await db
+            .collection('mensagens')
+            .findOne({ _id: new ObjectId(MESSAGE_ID) });
+        if (!checkMessage) {
+            res.sendStatus(404);
+            return;
+        }
+        if (checkMessage.from !== user) {
+            res.sendStatus(401);
+            return;
+        }
+
+        await db.collection('mensagens').updateOne(
+            {
+                _id: new ObjectId(MESSAGE_ID),
+            },
+            { $set: { from: user, to: to, text: text, type: type } }
+        );
+    } catch (e) {
+        console.error(chalk.bold.red('Could not update message'), e);
+        res.sendStatus(500);
+    }
 });
 
 app.listen(5000, () => {
