@@ -4,10 +4,11 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 dotenv.config();
 
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import chalk from 'chalk';
-
+import joi from 'joi';
 import dayjs from 'dayjs';
+import { stripHtml } from 'string-strip-html';
 
 const app = express();
 app.use(cors());
@@ -46,15 +47,28 @@ mongoClient.connect().then(() => {
 });
 
 app.post('/participants', async (req, res) => {
-    const { name } = req.body;
-    if (!name) res.sendStatus(422);
+    let { name } = req.body;
+
+    name = stripHtml(name).result.trim();
+
+    const userSchema = joi.object({
+        name: joi.string().required(),
+    });
+    const validation = userSchema.validate({ name }, { abortEarly: true });
+
+    if (validation.error) {
+        console.log(validation.error.details);
+        res.sendStatus(422);
+        return;
+    }
+
     try {
         const checkName = await db
             .collection('participantes')
             .findOne({ name: name });
-        console.log(chalk.bold.yellow(checkName));
         if (checkName) {
             res.sendStatus(409);
+            return;
         } else {
             const currentTime = dayjs().format('HH:mm:ss');
             await db
@@ -67,8 +81,7 @@ app.post('/participants', async (req, res) => {
                 type: 'status',
                 time: currentTime,
             });
-            res.sendStatus(201);
-            console.log(chalk.bold.blue('Posted partipants'));
+            res.send({ name: name }).status(201);
         }
     } catch (e) {
         console.error(chalk.bold.red('Could not post participants'), e);
@@ -91,9 +104,41 @@ app.get('/participants', async (req, res) => {
 });
 
 app.post('/messages', async (req, res) => {
-    const { to, text, type } = req.body;
-    const user = req.headers.user;
+    let { to, text, type } = req.body;
+    let user = req.headers.user;
+
+    to = stripHtml(to).result.trim();
+    text = stripHtml(text).result.trim();
+    type = stripHtml(type).result.trim();
+    user = stripHtml(user).result.trim();
+
+    const userSchema = joi.object({
+        to: joi.string().required(),
+        text: joi.string().required(),
+        type: joi.any().valid('message', 'private_message'),
+    });
+
+    const validation = userSchema.validate(
+        { to, text, type },
+        { abortEarly: true }
+    );
+
+    if (validation.error) {
+        console.log(validation.error.details);
+        res.sendStatus(422);
+        return;
+    }
+
     try {
+        const checkFrom = await db
+            .collection('participantes')
+            .findOne({ name: user });
+
+        if (checkFrom === undefined) {
+            res.sendStatus(422);
+            return;
+        }
+
         const currentTime = dayjs().format('HH:mm:ss');
 
         await db.collection('mensagens').insertOne({
@@ -104,7 +149,6 @@ app.post('/messages', async (req, res) => {
             time: currentTime,
         });
         res.sendStatus(201);
-        console.log(chalk.bold.blue('Posted messages'));
     } catch (e) {
         console.error(chalk.bold.red('Could not get messages'), e);
         res.sendStatus(500);
@@ -163,6 +207,45 @@ app.post('/status', async (req, res) => {
         console.error(chalk.bold.red('Could not post status'), e);
         res.sendStatus(500);
     }
+});
+
+app.delete('/messages/:MESSAGE_ID', async (req, res) => {
+    const { user } = req.headers;
+    const { MESSAGE_ID } = req.params;
+
+    try {
+        const checkMessage = await db
+            .collection('mensagens')
+            .findOne({ _id: new ObjectId(MESSAGE_ID) });
+        if (!checkMessage) {
+            res.sendStatus(404);
+            return;
+        }
+        if (checkMessage.from !== user) {
+            res.sendStatus(401);
+            return;
+        }
+        await db
+            .collection('mensagens')
+            .deleteOne({ _id: new ObjectId(MESSAGE_ID) });
+    } catch (e) {
+        console.error(chalk.bold.red('Could not delete message'), e);
+        res.sendStatus(500);
+    }
+
+    // try {
+    //     const checkMessage = await db.findOne({
+    //         _id: new ObjectId(MESSAGE_ID),
+    //     });
+    //     if (!checkMessage) {
+    //         res.sendStatus(404);
+    //         return;
+    //     }
+    //     //await db.deleteOne({ _id: new ObjectId(MESSAGE_ID) });
+    // } catch (e) {
+    //     console.error(chalk.bold.red('Could not delete message'), e);
+    //     res.sendStatus(500);
+    // }
 });
 
 app.listen(5000, () => {
